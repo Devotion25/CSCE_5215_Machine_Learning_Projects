@@ -1,0 +1,149 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import MinMaxScaler, PolynomialFeatures
+from sklearn.impute import SimpleImputer
+from sklearn.manifold import TSNE
+from sklearn.model_selection import RepeatedStratifiedKFold, cross_val_score, train_test_split
+from sklearn.linear_model import SGDClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.metrics import accuracy_score, f1_score, classification_report
+from imblearn.over_sampling import SMOTENC
+
+df = pd.read_csv("https://archive.ics.uci.edu/ml/machine-learning-databases/statlog/german/german.data", delimiter=' ', header=None)
+
+
+df.columns = ["Status", "Duration", "CreditHistory", "Purpose", "CreditAmount", "Savings", 
+              "Employment", "InstallmentRate", "Sex", "Debtors", "ResidenceYears", 
+              "Property", "Age", "OtherPlans", "Housing", "ExistingCredits", 
+              "Job", "LiablePersons", "Telephone", "ForeignWorker", "Target"]
+
+
+df["Target"] = df["Target"].apply(lambda x: 1 if x == 1 else 0)
+
+
+imputer = SimpleImputer(strategy="median")
+numeric_df = df.select_dtypes(include=[np.number])
+df[numeric_df.columns] = imputer.fit_transform(numeric_df)
+
+
+scaler = MinMaxScaler()
+numeric_features = ["Duration", "CreditAmount", "Age", "InstallmentRate", "ExistingCredits"]
+df[numeric_features] = scaler.fit_transform(df[numeric_features])
+
+poly = PolynomialFeatures(degree=2, interaction_only=True, include_bias=False)
+X_poly = poly.fit_transform(df[numeric_features])
+
+
+cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=42)
+
+
+def evaluate_model(model, X, y, cv):
+    acc_scores = cross_val_score(model, X, y, scoring='accuracy', cv=cv, n_jobs=-1)
+    f1_scores = cross_val_score(model, X, y, scoring='f1', cv=cv, n_jobs=-1)
+    return {"Accuracy": np.mean(acc_scores), "F1-Score": np.mean(f1_scores)}
+
+
+models = {
+    "Perceptron": SGDClassifier(loss='perceptron', max_iter=1000, random_state=42),
+    "Logistic Regression": SGDClassifier(loss='log_loss', max_iter=1000, random_state=42),
+    "SVM": SGDClassifier(loss='hinge', max_iter=1000, random_state=42),
+    "MLP": MLPClassifier(hidden_layer_sizes=(100,), max_iter=500, random_state=42)
+}
+
+
+results = {name: evaluate_model(model, X_poly, df["Target"], cv) for name, model in models.items()}
+results_df = pd.DataFrame(results).T
+print("\n===== R2: Model Performance Summary =====")
+print(results_df)
+
+
+cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=42)
+
+
+def evaluate_model(model, X, y, cv):
+    acc_scores = cross_val_score(model, X, y, scoring='accuracy', cv=cv, n_jobs=-1)
+    f1_scores = cross_val_score(model, X, y, scoring='f1', cv=cv, n_jobs=-1)
+    return {"Accuracy": np.mean(acc_scores), "F1-Score": np.mean(f1_scores)}
+
+
+models = {
+    "Perceptron": SGDClassifier(loss='perceptron', max_iter=1000, random_state=42),
+    "Logistic Regression": SGDClassifier(loss='log_loss', max_iter=1000, random_state=42),
+    "SVM": SGDClassifier(loss='hinge', max_iter=1000, random_state=42),
+    "MLP": MLPClassifier(hidden_layer_sizes=(100,), max_iter=500, random_state=42)
+}
+
+
+results = {name: evaluate_model(model, X_poly, df["Target"], cv) for name, model in models.items()}
+results_df = pd.DataFrame(results).T
+print("\n===== R2: Model Performance Summary =====")
+print(results_df)
+
+categorical_features = ["Status", "CreditHistory", "Purpose", "Savings", "Employment"]
+categorical_feature_indices = [df.columns.get_loc(col) for col in categorical_features]
+smote = SMOTENC(categorical_features=categorical_feature_indices, random_state=42)
+X_train_smote, y_train_smote = smote.fit_resample(X_train, y_train)
+
+
+best_linear_classifier = SGDClassifier(loss='log_loss', max_iter=1000, class_weight='balanced', random_state=42)
+best_linear_classifier.fit(X_train, y_train)
+y_pred = best_linear_classifier.predict(X_test)
+accuracy_b = accuracy_score(y_test, y_pred)
+f1_b = f1_score(y_test, y_pred)
+
+
+best_linear_classifier.fit(X_train_smote, y_train_smote)
+y_pred_smote = best_linear_classifier.predict(X_test)
+accuracy_c = accuracy_score(y_test, y_pred_smote)
+f1_c = f1_score(y_test, y_pred_smote)
+
+
+comparison_df = pd.DataFrame({
+    "Method": ["Class Weighting", "SMOTENC"],
+    "Accuracy": [accuracy_b, accuracy_c],
+    "F1-Score": [f1_b, f1_c]
+})
+print("\n===== R3: SMOTENC vs Class Weighting =====")
+print(comparison_df)
+
+X_train_r4, X_test_r4, y_train_r4, y_test_r4 = train_test_split(df[numeric_features], df["Target"], test_size=0.3, random_state=42)
+
+logistic_model = SGDClassifier(loss='log_loss', max_iter=1000, class_weight=None, random_state=42)
+logistic_model.fit(X_train_r4, y_train_r4)
+
+y_pred_r4 = logistic_model.predict(X_test_r4)
+feature_importance = np.abs(logistic_model.coef_).flatten()
+feature_ranks = np.argsort(feature_importance)[::-1]
+
+top_features = feature_ranks[:5]
+least_features = feature_ranks[-5:]
+
+print("\n===== Feature Importance Analysis =====")
+print("Top 5 Most Important Features:", [numeric_features[i] for i in top_features])
+print("Bottom 5 Least Important Features:", [numeric_features[i] for i in least_features])
+
+
+X_train_r4_reduced = X_train_r4[[numeric_features[i] for i in top_features]]
+X_test_r4_reduced = X_test_r4[[numeric_features[i] for i in top_features]]
+
+logistic_model.fit(X_train_r4_reduced, y_train_r4)
+y_pred_r4 = logistic_model.predict(X_test_r4_reduced)
+f1_r4 = f1_score(y_test_r4, y_pred_r4)
+print(f"\nF1 Score After Feature Selection: {f1_r4:.4f}")
+print("\n===== R4: Feature Selection Performance =====")
+print(feature_selection_df)
+
+from sklearn.model_selection import GridSearchCV
+param_grid = {
+    'loss': ['log_loss', 'hinge'],
+    'alpha': [0.0001, 0.001, 0.01, 0.1],
+    'max_iter': [1000, 2000]
+}
+
+grid_search = GridSearchCV(SGDClassifier(random_state=42), param_grid, scoring='f1', cv=5, n_jobs=-1)
+grid_search.fit(X_train_r4, y_train_r4)
+
+print("\n===== Best Hyperparameters Found =====")
+print(grid_search.best_params_)
